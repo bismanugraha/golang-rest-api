@@ -1,67 +1,86 @@
 package main
 
 import (
+	"database/sql"
+	"encoding/json"
+
+	// "fmt"
+	"log"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/gorilla/mux"
 )
 
-// album represents data about a record album.
-type album struct {
-	ID     string  `json:"id"`
-	Title  string  `json:"title"`
-	Artist string  `json:"artist"`
-	Price  float64 `json:"price"`
+// Room represents the user model for our CRUD operations
+type Room struct {
+	ID        int     `json:"id"`
+	Name      string  `json:"name"`
+	MaxPerson string  `json:"max_person"`
+	Price     float64 `json:"price"`
+	RoomCode  string  `json:"room_code"`
 }
 
-// albums slice to seed record album data.
-var albums = []album{
-	{ID: "1", Title: "Blue Train", Artist: "John Coltrane", Price: 56.99},
-	{ID: "2", Title: "Jeru", Artist: "Gerry Mulligan", Price: 17.99},
-	{ID: "3", Title: "Sarah Vaughan and Clifford Brown", Artist: "Sarah Vaughan", Price: 39.99},
-}
+var db *sql.DB
 
 func main() {
-	router := gin.Default()
-	router.GET("/albums", getAlbums)
-	router.GET("/albums/:id", getAlbumByID)
-	router.POST("/albums", postAlbums)
+	// Initialize database connection
+	var err error
+	db, err = sql.Open("mysql", "root:root@tcp(127.0.0.1:9900)/hotel")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
 
-	router.Run("localhost:8080")
+	// Initialize router
+	router := mux.NewRouter()
+
+	// Define API routes
+	router.HandleFunc("/rooms", getRooms).Methods("GET")    // Fetch all users
+	router.HandleFunc("/room/{id}", getRoom).Methods("GET") // Fetch a user by ID
+	// router.HandleFunc("/user", createUser).Methods("POST")        // Create a new user
+	// router.HandleFunc("/user/{id}", updateUser).Methods("PUT")    // Update a user by ID
+	// router.HandleFunc("/user/{id}", deleteUser).Methods("DELETE") // Delete a user by ID
+
+	// Start server on port 8000
+	log.Fatal(http.ListenAndServe(":8080", router))
 }
 
-// getAlbums responds with the list of all albums as JSON.
-func getAlbums(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, albums)
-}
-
-// postAlbums adds an album from JSON received in the request body.
-func postAlbums(c *gin.Context) {
-	var newAlbum album
-
-	// Call BindJSON to bind the received JSON to
-	// newAlbum.
-	if err := c.BindJSON(&newAlbum); err != nil {
+func getRooms(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var rooms []Room
+	rows, err := db.Query("SELECT id, name, max_person, price, room_code FROM room")
+	if err != nil {
+		log.Print(err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	defer rows.Close()
 
-	// Add the new album to the slice.
-	albums = append(albums, newAlbum)
-	c.IndentedJSON(http.StatusCreated, newAlbum)
-}
-
-// getAlbumByID locates the album whose ID value matches the id
-// parameter sent by the client, then returns that album as a response.
-func getAlbumByID(c *gin.Context) {
-	id := c.Param("id")
-
-	// Loop through the list of albums, looking for
-	// an album whose ID value matches the parameter.
-	for _, a := range albums {
-		if a.ID == id {
-			c.IndentedJSON(http.StatusOK, a)
+	for rows.Next() {
+		var room Room
+		if err := rows.Scan(&room.ID, &room.Name, &room.MaxPerson, &room.Price, &room.RoomCode); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		rooms = append(rooms, room)
 	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "album not found"})
+	json.NewEncoder(w).Encode(rooms)
+}
+
+func getRoom(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	params := mux.Vars(r)
+	id := params["id"]
+	var room Room
+	err := db.QueryRow("SELECT id, name, max_person, price, room_code FROM room WHERE id = ?", id).Scan(&room.ID, &room.Name, &room.MaxPerson, &room.Price, &room.RoomCode)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	json.NewEncoder(w).Encode(room)
 }
