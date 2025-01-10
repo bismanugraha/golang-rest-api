@@ -4,10 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
-	// "fmt"
-	// "strings"
 	"log"
 	"net/http"
 
@@ -39,10 +38,10 @@ func main() {
 	router := mux.NewRouter()
 
 	// Define API routes
-	router.HandleFunc("/rooms", getRooms).Methods("GET")    // Fetch all rooms
-	router.HandleFunc("/room/{id}", getRoom).Methods("GET") // Fetch a room by ID
-	router.HandleFunc("/room", createRoom).Methods("POST")  // Create a new room
-	// router.HandleFunc("/user/{id}", updateUser).Methods("PUT")    // Update a user by ID
+	router.HandleFunc("/rooms", getRooms).Methods("GET")       // Fetch all rooms
+	router.HandleFunc("/room/{id}", getRoom).Methods("GET")    // Fetch a room by ID
+	router.HandleFunc("/room", createRoom).Methods("POST")     // Create a new room
+	router.HandleFunc("/room/{id}", updateRoom).Methods("PUT") // Update a room by ID
 	// router.HandleFunc("/user/{id}", deleteUser).Methods("DELETE") // Delete a user by ID
 
 	// Start server on port 8000
@@ -114,6 +113,34 @@ func createRoom(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(err.Error())
 	}
 	room.ID = int(id)
+	json.NewEncoder(w).Encode(room)
+}
+
+func updateRoom(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	params := mux.Vars(r)
+	idStr := params["id"]
+
+	id, errconv := strconv.Atoi(idStr)
+	if errconv != nil {
+		http.Error(w, "Invalid room ID", http.StatusBadRequest)
+		return
+	}
+	var room Room
+	err := json.NewDecoder(r.Body).Decode(&room)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	room.RoomCode = roomCodeGenerator(room.Name, room.MaxPerson)
+	_, err = db.Exec("UPDATE room SET name = ?, max_person = ?, price = ?, room_code = ? WHERE id = ?", room.Name, room.MaxPerson, room.Price, room.RoomCode, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	room.ID = id
 	json.NewEncoder(w).Encode(room)
 }
 
